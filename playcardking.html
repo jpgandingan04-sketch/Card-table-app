@@ -1,0 +1,261 @@
+<!DOCTYPE html><html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Table Pro</title><!-- PWA MANIFEST --><link rel="manifest" id="manifestLink">
+<meta name="theme-color" content="#0b6b3a"><style>
+body { font-family: Arial; margin:0; padding:10px; background:#0b6b3a; color:white; }
+
+#topBar {
+  display:flex;
+  justify-content:space-around;
+  margin-bottom:5px;
+  flex-wrap:wrap;
+  gap:5px;
+}
+
+.choice { padding:8px; background:#222; border-radius:6px; font-size:11px; }
+
+#modeBar {
+  display:none;
+  justify-content:center;
+  gap:10px;
+  margin-bottom:5px;
+}
+
+#table {
+  position:relative;
+  width:100%;
+  height:78vh;
+  background:#0e7a42;
+  overflow:hidden;
+}
+
+.card {
+  position:absolute;
+  width:55px;
+  height:75px;
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:bold;
+  touch-action:none;
+  user-select:none;
+  background-size:cover;
+  background-position:center;
+}
+
+.back { color:transparent; }
+.black { color:black; }
+.red { color:red; }
+.blue { color:blue; }
+.green { color:green; }
+
+#settingsBtn{
+  position:fixed;
+  top:10px;
+  right:10px;
+  width:45px;
+  height:45px;
+  border-radius:50%;
+  background:#111;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:22px;
+  z-index:999;
+}
+
+#settingsPanel{
+  position:fixed;
+  top:60px;
+  right:10px;
+  background:#111;
+  padding:12px;
+  border-radius:10px;
+  font-size:12px;
+  display:none;
+  z-index:999;
+  width:240px;
+}
+
+#settingsPanel input{ width:100%; margin-bottom:8px; }
+
+.appItem{ background:#222; padding:5px; margin-top:5px; border-radius:5px; font-size:11px; }
+</style></head><body><h3>♠ Card Table Pro (PWA)</h3><div id="topBar">
+  <div class="choice" onclick="preset1()">A→K ALL</div>
+  <div class="choice" onclick="preset2()">RANDOM</div>
+  <div class="choice" onclick="preset3()">4 A→K</div>
+  <div class="choice" onclick="preset4()">CUSTOM</div>
+</div><div id="modeBar">
+  <div class="choice" onclick="autoDistribute()">AUTO</div>
+  <div class="choice" onclick="goBack()">BACK</div>
+</div><div id="table"></div><audio id="bgMusic" loop></audio>
+
+<div id="settingsBtn" onclick="toggleSettings()">⚙️</div><div id="settingsPanel">
+  <div>Table Color</div>
+  <input type="color" onchange="setTableColor(this.value)">  <div>Card Back Color</div>
+  <input type="color" onchange="setBackColor(this.value)">  <div>Card Back Image</div>
+  <input type="file" accept="image/*" onchange="setBackImage(event)">  <div>Card Front Image</div>
+  <input type="file" accept="image/*" onchange="setCardImage(event)">  <div>Background Image</div>
+  <input type="file" accept="image/*" onchange="setBG(event)">  <div>Music</div>
+  <input type="file" accept="audio/*" onchange="setMusic(event)">
+  <button onclick="playMusic()">▶ Play</button>
+  <button onclick="pauseMusic()">⏸ Pause</button>
+</div><script>
+/* ===== PWA SETUP ===== */
+const manifest = {
+  name: "Card Table Pro",
+  short_name: "Cards",
+  start_url: ".",
+  display: "standalone",
+  background_color: "#0b6b3a",
+  theme_color: "#0b6b3a",
+  icons: []
+};
+
+const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+document.getElementById("manifestLink").href = URL.createObjectURL(blob);
+
+if ('serviceWorker' in navigator) {
+  const sw = `
+  self.addEventListener('install', e => self.skipWaiting());
+  self.addEventListener('fetch', e => {});
+  `;
+
+  const swBlob = new Blob([sw], {type:'application/javascript'});
+  const swUrl = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl);
+}
+
+/* ===== ORIGINAL GAME CODE ===== */
+const suits=["♦","♥","♠","♣"];
+const values=["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+
+let currentSet=[];
+let z=1;
+let backColor="#111";
+let backImage=null;
+let cardImage=null;
+
+const CARD_W=55;
+const CARD_H=75;
+
+function color(s){
+  if(s==="♠") return "black";
+  if(s==="♥") return "red";
+  if(s==="♦") return "blue";
+  if(s==="♣") return "green";
+}
+
+function clearTable(){ document.getElementById("table").innerHTML=""; }
+function showControls(){ document.getElementById("modeBar").style.display="flex"; }
+
+function applyBackStyle(el){
+  if(backImage){
+    el.style.backgroundImage=`url(${backImage})`;
+    el.style.backgroundColor="transparent";
+  } else {
+    el.style.backgroundImage="none";
+    el.style.backgroundColor=backColor;
+  }
+}
+
+function spawn(v,s,x=null,y=null){
+  let c=document.createElement("div");
+  c.className="card back";
+
+  c.dataset.v=v;
+  c.dataset.s=s;
+  c.dataset.r="false";
+
+  if(x===null){
+    let t=document.getElementById("table");
+    x=t.clientWidth/2 - CARD_W/2;
+    y=t.clientHeight - CARD_H - 10;
+  }
+
+  c.style.left=x+"px";
+  c.style.top=y+"px";
+
+  applyBackStyle(c);
+  c.style.zIndex=z++;
+
+  flip(c);
+  drag(c);
+  document.getElementById("table").appendChild(c);
+}
+
+function render(el){
+  if(el.dataset.r==="false"){
+    el.className="card back";
+    el.innerText="";
+    applyBackStyle(el);
+  } else {
+    el.className="card "+color(el.dataset.s);
+    el.innerText=el.dataset.v+el.dataset.s;
+  }
+}
+
+function flip(el){
+  el.ondblclick=()=>{
+    el.dataset.r = el.dataset.r==="true"?"false":"true";
+    render(el);
+  };
+}
+
+function drag(el){
+  let ox=0,oy=0,active=false;
+
+  el.addEventListener("touchstart",start,{passive:false});
+  el.addEventListener("mousedown",start);
+
+  function start(e){
+    active=true;
+    let p=e.touches?e.touches[0]:e;
+    let r=el.getBoundingClientRect();
+    ox=p.clientX-r.left;
+    oy=p.clientY-r.top;
+    el.style.zIndex=z++;
+  }
+
+  document.addEventListener("touchmove",move,{passive:false});
+  document.addEventListener("mousemove",move);
+
+  function move(e){
+    if(!active) return;
+
+    let p=e.touches?e.touches[0]:e;
+    let t=document.getElementById("table").getBoundingClientRect();
+
+    el.style.left=(p.clientX-t.left-ox)+"px";
+    el.style.top=(p.clientY-t.top-oy)+"px";
+  }
+
+  document.addEventListener("touchend",()=>active=false);
+  document.addEventListener("mouseup",()=>active=false);
+}
+
+/* BASIC FUNCTIONS */
+function toggleSettings(){
+  let p=document.getElementById("settingsPanel");
+  p.style.display=p.style.display==="block"?"none":"block";
+}
+function setTableColor(c){ document.getElementById("table").style.background=c; }
+function setBackColor(c){ backColor=c; }
+function setBackImage(e){ let f=e.target.files[0]; let r=new FileReader(); r.onload=()=>{ backImage=r.result; document.querySelectorAll(".card").forEach(applyBackStyle); }; r.readAsDataURL(f);} 
+function setCardImage(e){ let f=e.target.files[0]; let r=new FileReader(); r.onload=()=>{ cardImage=r.result; }; r.readAsDataURL(f);} 
+function setBG(e){ let f=e.target.files[0]; let r=new FileReader(); r.onload=()=>{ document.getElementById("table").style.backgroundImage=`url('${r.result}')`; }; r.readAsDataURL(f);} 
+function setMusic(e){ document.getElementById("bgMusic").src=URL.createObjectURL(e.target.files[0]); }
+function playMusic(){ document.getElementById("bgMusic").play(); }
+function pauseMusic(){ document.getElementById("bgMusic").pause(); }
+
+/* SIMPLE PRESETS */
+function preset1(){clearTable();currentSet=[];for(let v of values){for(let s of suits){currentSet.push([v,s]);}}currentSet.forEach(c=>spawn(c[0],c[1]));showControls();}
+function preset2(){clearTable();currentSet=[];for(let s of suits){for(let v of values){currentSet.push([v,s]);}}currentSet.sort(()=>Math.random()-0.5);currentSet.forEach(c=>spawn(c[0],c[1]));showControls();}
+function preset3(){preset1();}
+function preset4(){clearTable();currentSet=[];let all=[];for(let s of suits){for(let v of values){all.push([v,s]);}}let order=[35,3,51,19,43,11,27,47,15,31,39,7,23,33,1,49,17,41,9,25,45,13,29,37,5,21,36,4,52,20,44,12,28,48,16,32,40,8,24,34,2,50,18,42,10,26,46,14,30,38,6,22];order.forEach(n=>currentSet.push(all[n-1]));currentSet.forEach(c=>spawn(c[0],c[1]));showControls();}
+function goBack(){location.reload();}
+function autoDistribute(){if(!currentSet.length)return;let g=prompt("Groups","4");g=parseInt(g);if(!g)return;clearTable();let t=document.getElementById("table");let cols=Array.from({length:g},()=>[]);currentSet.forEach((c,i)=>cols[i%g].push(c));cols.forEach((col,ci)=>col.forEach((c,ri)=>spawn(c[0],c[1],(t.clientWidth/g)*ci+10,10+ri*20)));showControls();}
+</script></body>
+</html>
